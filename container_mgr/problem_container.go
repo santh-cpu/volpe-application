@@ -1,4 +1,4 @@
-//problem containers and its functions 
+// problem containers and its functions
 package container_mgr
 
 import (
@@ -7,6 +7,7 @@ import (
 	"math/rand/v2"
 	"sync"
 	"time"
+
 	comms "volpe-framework/comms/common"
 	ccomms "volpe-framework/comms/container"
 	vcomms "volpe-framework/comms/volpe"
@@ -21,21 +22,21 @@ type ProblemContainer struct {
 	problemID     string
 	containerName string
 	//	containerPort uint16
-	hostPort    uint16
-	commsClient ccomms.VolpeContainerClient
+	hostPort       uint16
+	commsClient    ccomms.VolpeContainerClient
 	resultChannels map[chan *ccomms.ResultPopulation]bool
-	rcMut sync.Mutex
-	cancel context.CancelFunc
+	rcMut          sync.Mutex
+	cancel         context.CancelFunc
 }
 
-//generates random name for every container
+// generates random name for every container
 func genContainerName(problemID string) string {
 	return fmt.Sprintf("volpe_%s_%d", problemID, rand.Int32())
 }
 
 const DEFAULT_CONTAINER_PORT uint16 = 8081
 
-//starts problem container, connects it via grpc, and creates context
+// starts problem container, connects it via grpc, and creates context
 func NewProblemContainer(problemID string, imagePath string, worker bool) (*ProblemContainer, error) {
 	pc := new(ProblemContainer)
 	pc.problemID = problemID
@@ -70,12 +71,12 @@ func NewProblemContainer(problemID string, imagePath string, worker bool) (*Prob
 	return pc, nil
 }
 
-//returns container name
+// returns container name
 func (pc *ProblemContainer) GetContainerName() string {
 	return pc.containerName
 }
 
-//adds /updates channel to jresultChannels
+// adds /updates channel to resultChannels
 func (pc *ProblemContainer) RegisterResultChannel(channel chan *ccomms.ResultPopulation) {
 	pc.rcMut.Lock()
 	defer pc.rcMut.Unlock()
@@ -83,7 +84,7 @@ func (pc *ProblemContainer) RegisterResultChannel(channel chan *ccomms.ResultPop
 	pc.resultChannels[channel] = true
 }
 
-//removes channel from resultChannels
+// removes channel from resultChannels
 func (pc *ProblemContainer) DeRegisterResultChannel(channel chan *ccomms.ResultPopulation) {
 	pc.rcMut.Lock()
 	defer pc.rcMut.Unlock()
@@ -91,7 +92,7 @@ func (pc *ProblemContainer) DeRegisterResultChannel(channel chan *ccomms.ResultP
 	delete(pc.resultChannels, channel)
 }
 
-//returns random population from container
+// returns random population from container
 func (pc *ProblemContainer) GetRandomSubpopulation(count int) (*comms.Population, error) {
 	pop, err := pc.commsClient.GetRandom(context.Background(), &ccomms.PopulationSize{Size: int32(count)})
 	if err != nil {
@@ -102,7 +103,7 @@ func (pc *ProblemContainer) GetRandomSubpopulation(count int) (*comms.Population
 	return pop, nil
 }
 
-//returns best population set from container
+// returns best population set from container
 func (pc *ProblemContainer) GetSubpopulation(count int) (*comms.Population, error) {
 	pop, err := pc.commsClient.GetBestPopulation(context.Background(), &ccomms.PopulationSize{Size: int32(count)})
 	if err != nil {
@@ -113,7 +114,7 @@ func (pc *ProblemContainer) GetSubpopulation(count int) (*comms.Population, erro
 	return pop, nil
 }
 
-//handles population updation events
+// handles population updation events
 func (pc *ProblemContainer) HandleEvents(eventChannel chan *vcomms.AdjustPopulationMessage) {
 	for {
 		msg, ok := <-eventChannel
@@ -137,7 +138,7 @@ func (pc *ProblemContainer) HandleEvents(eventChannel chan *vcomms.AdjustPopulat
 	}
 }
 
-//fetches result once and sends to corresponding channel from resultChannels
+// fetches result once and sends to corresponding channel from resultChannels
 func (pc *ProblemContainer) sendResultOnce(ctx context.Context) {
 	pc.rcMut.Lock()
 	defer pc.rcMut.Unlock()
@@ -148,26 +149,26 @@ func (pc *ProblemContainer) sendResultOnce(ctx context.Context) {
 		return
 	}
 
-	for channel, _ := range pc.resultChannels {
+	for channel := range pc.resultChannels {
 		channel <- result
 	}
 }
 
-//continuosly sends results till with context
+// continuosly sends results till with context
 func (pc *ProblemContainer) sendResults(ctx context.Context) {
 	for {
-		time.Sleep(5*time.Second)
+		time.Sleep(5 * time.Second)
 		if ctx.Err() != nil {
 			break
 		}
 		pc.sendResultOnce(ctx)
 	}
-	for channel, _ := range pc.resultChannels {
+	for channel := range pc.resultChannels {
 		close(channel)
 	}
 }
 
-//INFO: continously runs generations
+// INFO: continously runs generations
 func (pc *ProblemContainer) runGenerations(ctx context.Context) {
 	for {
 		// TODO: configure generation run count
@@ -177,13 +178,13 @@ func (pc *ProblemContainer) runGenerations(ctx context.Context) {
 				break
 			}
 			log.Err(err).Caller().Msgf("running gen for %s failed", pc.problemID)
-			time.Sleep(5*time.Second)
+			time.Sleep(5 * time.Second)
 		}
 	}
 	log.Info().Caller().Msgf("stopping gen for %s", pc.problemID)
 }
 
-//stops and removes container invoking podman
+// stops and removes container invoking podman
 func (pc *ProblemContainer) StopContainer() {
 	podman, err := NewPodmanConnection()
 	if err != nil {

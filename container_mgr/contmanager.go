@@ -1,3 +1,4 @@
+// container manager and functions
 package container_mgr
 
 import (
@@ -8,6 +9,7 @@ import (
 	"os"
 	"slices"
 	"sync"
+
 	"volpe-framework/comms/common"
 	ccoms "volpe-framework/comms/container"
 	"volpe-framework/comms/volpe"
@@ -23,15 +25,16 @@ import (
 // TODO: testing for this module
 
 type ContainerManager struct {
-	problemContainers 	map[string][]*ProblemContainer
-	images 				map[string]string
-	pcMut             	sync.Mutex
-	containers        	map[string]string
-	problemStarts		map[string]float64
-	meter             	otelmetric.Meter
-	worker 				bool
+	problemContainers map[string][]*ProblemContainer
+	images            map[string]string
+	pcMut             sync.Mutex
+	containers        map[string]string
+	problemStarts     map[string]float64
+	meter             otelmetric.Meter
+	worker            bool
 }
 
+// constructor for a new container manager
 func NewContainerManager(worker bool) *ContainerManager {
 	cm := new(ContainerManager)
 	cm.meter = otel.Meter("volpe-framework")
@@ -43,6 +46,7 @@ func NewContainerManager(worker bool) *ContainerManager {
 	return cm
 }
 
+// checks if container manager has a specific problem
 func (cm *ContainerManager) HasProblem(problemID string) bool {
 	cm.pcMut.Lock()
 	defer cm.pcMut.Unlock()
@@ -51,6 +55,7 @@ func (cm *ContainerManager) HasProblem(problemID string) bool {
 	return ok
 }
 
+// starts problem container and adds problem to problemContainers
 func (cm *ContainerManager) AddProblem(problemID string, imagePath string, instances int) error {
 	cm.pcMut.Lock()
 	defer cm.pcMut.Unlock()
@@ -71,14 +76,14 @@ func (cm *ContainerManager) AddProblem(problemID string, imagePath string, insta
 			return err
 		}
 		cm.containers[pc.containerName] = problemID
-		instSlice[inst] = pc;
+		instSlice[inst] = pc
 	}
-
 
 	cm.problemContainers[problemID] = instSlice
 	return nil
 }
 
+// remove problem container and removes from problemContainers
 func (cm *ContainerManager) RemoveProblem(problemID string) error {
 	cm.pcMut.Lock()
 	defer cm.pcMut.Unlock()
@@ -126,8 +131,8 @@ func (cm *ContainerManager) GetSubpopulations(perContainer int) ([]*common.Popul
 						bestIndex = i
 					}
 				}
-				fname := cont.containerName+".csv"
-				f, err := os.OpenFile(fname, os.O_APPEND | os.O_CREATE | os.O_WRONLY, 0644)
+				fname := cont.containerName + ".csv"
+				f, err := os.OpenFile(fname, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 				if err != nil {
 					log.Err(err).Msgf("failed while creating/opening file %s to log best", fname)
 				} else {
@@ -142,7 +147,7 @@ func (cm *ContainerManager) GetSubpopulations(perContainer int) ([]*common.Popul
 			}
 
 			population.Members = slices.Grow(population.Members, len(members))
-			for _, memb := range(members) {
+			for _, memb := range members {
 				population.Members = append(population.Members, memb)
 			}
 		}
@@ -164,14 +169,14 @@ func (cm *ContainerManager) GetRandomSubpopulation(problemID string, perContaine
 	population := new(common.Population)
 	population.ProblemID = &problemID
 
-	for _, container := range(containers) {
+	for _, container := range containers {
 		subpop, err := container.GetRandomSubpopulation(perContainer)
 		if err != nil {
 			return nil, err
 		}
 		members := subpop.GetMembers()
 		population.Members = slices.Grow(population.Members, len(members))
-		for _, memb := range(members) {
+		for _, memb := range members {
 			population.Members = append(population.Members, memb)
 		}
 	}
@@ -188,11 +193,11 @@ func (cm *ContainerManager) IncorporatePopulation(pop *common.Population) {
 		return
 	}
 
-	perContainer := len(pop.Members)/len(containers)
-	for i, cont := range(containers) {
+	perContainer := len(pop.Members) / len(containers)
+	for i, cont := range containers {
 		newpop := common.Population{
-			ProblemID: pop.ProblemID, 
-			Members: pop.Members[i*perContainer:(i+1)*perContainer],
+			ProblemID: pop.ProblemID,
+			Members:   pop.Members[i*perContainer : (i+1)*perContainer],
 		}
 		reply, err := cont.commsClient.InitFromSeedPopulation(context.Background(), &newpop)
 		if err != nil {
@@ -212,6 +217,7 @@ func (cm *ContainerManager) IncorporatePopulation(pop *common.Population) {
 	}
 }
 
+// adjusts number of running conatiners for a problem based on event
 func (cm *ContainerManager) HandleInstancesEvent(event *volpe.AdjustInstancesMessage) {
 	cm.pcMut.Lock()
 	defer cm.pcMut.Unlock()
@@ -238,19 +244,19 @@ func (cm *ContainerManager) HandleInstancesEvent(event *volpe.AdjustInstancesMes
 		cm.problemContainers[problemID] = containers
 	} else if len(containers) > instances {
 		log.Info().Msgf("Decreasing instance count for problem %s to %d", problemID, instances)
-		for i := instances; i < len(containers);  i++ {
+		for i := instances; i < len(containers); i++ {
 			containers[i].StopContainer()
 		}
 		cm.problemContainers[problemID] = containers[:instances]
 		containers = containers[:instances]
 	}
 	seedPop := event.GetSeed().Members
-	perContainer := len(seedPop)/len(containers)
+	perContainer := len(seedPop) / len(containers)
 	log.Debug().Msgf("Problem: %s Instances: %d SeedPop: %d", problemID, instances, len(seedPop))
-	for i, cont := range(containers) {
+	for i, cont := range containers {
 		newPop := common.Population{
 			ProblemID: &problemID,
-			Members: seedPop[i*perContainer:(i+1)*perContainer],
+			Members:   seedPop[i*perContainer : (i+1)*perContainer],
 		}
 		_, err := cont.commsClient.InitFromSeedPopulation(context.Background(), &newPop)
 		if err != nil {
@@ -260,6 +266,7 @@ func (cm *ContainerManager) HandleInstancesEvent(event *volpe.AdjustInstancesMes
 	}
 }
 
+// INFO registers result channel TRUE
 func (cm *ContainerManager) RegisterResultListener(problemID string, channel chan *ccoms.ResultPopulation) error {
 	cm.pcMut.Lock()
 	defer cm.pcMut.Unlock()
@@ -273,6 +280,7 @@ func (cm *ContainerManager) RegisterResultListener(problemID string, channel cha
 	return nil
 }
 
+// deregisters resutl channel to FALSE
 func (cm *ContainerManager) RemoveResultListener(problemID string, channel chan *ccoms.ResultPopulation) error {
 	cm.pcMut.Lock()
 	defer cm.pcMut.Unlock()
